@@ -1,0 +1,244 @@
+"""
+State of the Union Speech Analyzer
+CSC484 - Module 2 Critical Thinking
+ 
+Reads a State of the Union speech from a text file and displays, in
+tabular format:
+    * Word count
+    * Character count
+    * Average word length
+    * Average sentence length
+    * Word distribution (frequency of words)
+    * Top ten longest words
+ 
+Usage:
+    python speech_analyzer.py                 (prompts for a file; Enter = default)
+    python speech_analyzer.py path/to/file.txt
+"""
+ 
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+ 
+# ----------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------
+DEFAULT_FILE = Path(__file__).parent / "speeches" / "washington_1790.txt"
+ 
+# A word is a run of letters, optionally joined by internal apostrophes or
+# hyphens (e.g. "co-operation", "our's"). Numbers and punctuation are ignored.
+WORD_PATTERN = re.compile(r"[A-Za-z]+(?:['\u2019-][A-Za-z]+)*")
+ 
+# A sentence ends with . ! or ? (the 1790 text also uses ".--" as a break).
+SENTENCE_END_PATTERN = re.compile(r"[.!?]+(?:--)?(?:\s+|$)")
+ 
+TOP_FREQUENT_WORDS = 15
+TOP_LONGEST_WORDS = 10
+BAR_WIDTH = 28
+TABLE_INDENT = "  "
+ 
+ 
+# ----------------------------------------------------------------------------
+# File input
+# ----------------------------------------------------------------------------
+def read_speech(path):
+    """Read and return the full text of the speech file."""
+    with open(path, "r", encoding="utf-8") as speech_file:
+        return speech_file.read()
+ 
+ 
+def choose_file():
+    """Return the speech file path from the command line or a prompt."""
+    if len(sys.argv) > 1:
+        return Path(sys.argv[1])
+ 
+    print(f"\n  Default speech: {DEFAULT_FILE.name}")
+    answer = input("  Enter a speech file path (or press Enter for default): ").strip()
+    return Path(answer) if answer else DEFAULT_FILE
+ 
+ 
+# ----------------------------------------------------------------------------
+# Text analysis
+# ----------------------------------------------------------------------------
+def extract_words(text):
+    """Return a list of lower-case words found in the text."""
+    return [word.lower() for word in WORD_PATTERN.findall(text)]
+ 
+ 
+def count_sentences(text):
+    """Return the number of sentences in the text."""
+    pieces = SENTENCE_END_PATTERN.split(text)
+    return len([piece for piece in pieces if piece.strip()])
+ 
+ 
+def top_longest_words(words, how_many):
+    """Return the longest unique words as (word, length) tuples."""
+    unique_words = set(words)
+    ranked = sorted(unique_words, key=lambda word: (-len(word), word))
+    return [(word, len(word)) for word in ranked[:how_many]]
+ 
+ 
+def bucket_frequencies(frequency_counter):
+    """
+    Group words by how often they appear.
+    Returns a list of (label, number_of_distinct_words).
+    """
+    buckets = [
+        ("1 time", 1, 1),
+        ("2 times", 2, 2),
+        ("3 times", 3, 3),
+        ("4-5 times", 4, 5),
+        ("6-10 times", 6, 10),
+        ("11-20 times", 11, 20),
+        ("21+ times", 21, float("inf")),
+    ]
+    results = []
+    for label, low, high in buckets:
+        total = sum(1 for count in frequency_counter.values() if low <= count <= high)
+        results.append((label, total))
+    return results
+ 
+ 
+def analyze(text):
+    """Compute every statistic and return them in a dictionary."""
+    words = extract_words(text)
+    word_count = len(words)
+    sentence_count = count_sentences(text)
+    letters_total = sum(len(word) for word in words)
+    frequency = Counter(words)
+ 
+    return {
+        "words": words,
+        "word_count": word_count,
+        "unique_words": len(frequency),
+        "sentence_count": sentence_count,
+        "char_count": len(text),
+        "char_count_no_spaces": len(re.sub(r"\s", "", text)),
+        "avg_word_length": letters_total / word_count if word_count else 0,
+        "avg_sentence_length": word_count / sentence_count if sentence_count else 0,
+        "frequency": frequency,
+        "longest": top_longest_words(words, TOP_LONGEST_WORDS),
+    }
+ 
+ 
+# ----------------------------------------------------------------------------
+# Table display
+# ----------------------------------------------------------------------------
+def format_table(headers, rows, alignments):
+    """
+    Build a box-drawn table.
+    alignments: one of "<" (left), ">" (right) per column.
+    """
+    rows = [[str(cell) for cell in row] for row in rows]
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+ 
+    def border(left, middle, right):
+        return left + middle.join("\u2500" * (w + 2) for w in widths) + right
+ 
+    def line(cells, aligns):
+        parts = [f" {cell:{align}{width}} " for cell, align, width in zip(cells, aligns, widths)]
+        return "\u2502" + "\u2502".join(parts) + "\u2502"
+ 
+    output = [border("\u250c", "\u252c", "\u2510"),
+              line(headers, ["^"] * len(headers)),
+              border("\u251c", "\u253c", "\u2524")]
+    output.extend(line(row, alignments) for row in rows)
+    output.append(border("\u2514", "\u2534", "\u2518"))
+    return output
+ 
+ 
+def print_section(title, headers, rows, alignments):
+    """Print a titled table."""
+    print(f"\n{TABLE_INDENT}\u25b6 {title}")
+    for text_line in format_table(headers, rows, alignments):
+        print(TABLE_INDENT + text_line)
+ 
+ 
+def print_banner(path):
+    """Print the program header."""
+    width = 62
+    print("\n" + TABLE_INDENT + "\u2554" + "\u2550" * width + "\u2557")
+    print(TABLE_INDENT + "\u2551" + "STATE OF THE UNION SPEECH ANALYZER".center(width) + "\u2551")
+    print(TABLE_INDENT + "\u2551" + f"File: {path.name}".center(width) + "\u2551")
+    print(TABLE_INDENT + "\u255a" + "\u2550" * width + "\u255d")
+ 
+ 
+def show_summary(stats):
+    rows = [
+        ("Word count", f"{stats['word_count']:,}"),
+        ("Unique words", f"{stats['unique_words']:,}"),
+        ("Character count (with spaces)", f"{stats['char_count']:,}"),
+        ("Character count (no spaces)", f"{stats['char_count_no_spaces']:,}"),
+        ("Sentence count", f"{stats['sentence_count']:,}"),
+        ("Average word length", f"{stats['avg_word_length']:.2f} characters"),
+        ("Average sentence length", f"{stats['avg_sentence_length']:.2f} words"),
+    ]
+    print_section("SPEECH STATISTICS", ["Measure", "Value"], rows, ["<", ">"])
+ 
+ 
+def show_frequency(stats):
+    total = stats["word_count"]
+    top_words = stats["frequency"].most_common(TOP_FREQUENT_WORDS)
+    highest = top_words[0][1]
+    rows = []
+    for rank, (word, count) in enumerate(top_words, 1):
+        percent = count / total * 100
+        bar = "\u2588" * max(1, round(count / highest * BAR_WIDTH))
+        rows.append((rank, word, count, f"{percent:.2f}%", bar))
+    print_section(f"WORD FREQUENCY - TOP {TOP_FREQUENT_WORDS} MOST COMMON WORDS",
+                  ["Rank", "Word", "Count", "Percent", "Distribution"],
+                  rows, [">", "<", ">", ">", "<"])
+ 
+ 
+def show_distribution(stats):
+    unique_total = stats["unique_words"]
+    rows = []
+    for label, count in bucket_frequencies(stats["frequency"]):
+        rows.append((label, count, f"{count / unique_total * 100:.1f}%"))
+    print_section("WORD DISTRIBUTION - HOW OFTEN WORDS REPEAT",
+                  ["Word appears", "Distinct words", "% of vocabulary"],
+                  rows, ["<", ">", ">"])
+ 
+ 
+def show_longest(stats):
+    rows = [(rank, word, length) for rank, (word, length) in enumerate(stats["longest"], 1)]
+    print_section(f"TOP {TOP_LONGEST_WORDS} LONGEST WORDS",
+                  ["Rank", "Word", "Length"], rows, [">", "<", ">"])
+ 
+ 
+# ----------------------------------------------------------------------------
+# Main program
+# ----------------------------------------------------------------------------
+def main():
+    path = choose_file()
+ 
+    try:
+        text = read_speech(path)
+    except FileNotFoundError:
+        print(f"\n  Error: could not find the file '{path}'.")
+        return 1
+    except UnicodeDecodeError:
+        print(f"\n  Error: '{path}' is not a readable UTF-8 text file.")
+        return 1
+ 
+    if not text.strip():
+        print(f"\n  Error: '{path}' is empty.")
+        return 1
+ 
+    stats = analyze(text)
+ 
+    print_banner(path)
+    show_summary(stats)
+    show_frequency(stats)
+    show_distribution(stats)
+    show_longest(stats)
+    print()
+    return 0
+ 
+ 
+if __name__ == "__main__":
+    sys.exit(main())
